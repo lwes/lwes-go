@@ -35,6 +35,7 @@ const (
 	LWES_TYPE_DOUBLE      = 12
 	LWES_TYPE_LONG_STRING = 13
 
+	// the array and sparse array types are not supported yet
 	LWES_TYPE_U_INT_16_ARRAY = 129
 	LWES_TYPE_INT_16_ARRAY   = 130
 	LWES_TYPE_U_INT_32_ARRAY = 131
@@ -90,11 +91,13 @@ type LwesEvent struct {
 	attr_keys []string // save the order of keys, for internal use for debugging
 }
 
+// for emitting lwes event, start with NewLwesEvent
+// and following by multiple .Set key value pairs
+// then .MarshalBinary to get the bytes
 func NewLwesEvent(name string) *LwesEvent {
 	return &LwesEvent{
-		Name:      name,
-		Attrs:     make(map[string]interface{}),
-		attr_keys: make([]string, 0, 10),
+		Name:  name,
+		Attrs: make(map[string]interface{}),
 	}
 }
 
@@ -104,6 +107,7 @@ func (lwe *LwesEvent) Set(key string, value interface{}) {
 	lwe.Attrs[key] = value
 }
 
+// the helper to marshal a BinaryMarshaler to bytes (should this be in "encoding" ?)
 func Marshal(v encoding.BinaryMarshaler) ([]byte, error) {
 	return v.MarshalBinary()
 }
@@ -114,6 +118,7 @@ var (
 	errUnsupportedDataType = errors.New("unsupported data type")
 )
 
+// the helper to unmarshal bytes into a BinaryMarshaler (should this be in "encoding" ?)
 func Unmarshal(data []byte, v encoding.BinaryUnmarshaler) error {
 	return v.UnmarshalBinary(data)
 
@@ -122,6 +127,8 @@ func Unmarshal(data []byte, v encoding.BinaryUnmarshaler) error {
 	// reflect.Indirect(reflect.ValueOf(v)).Set(reflect.ValueOf(lwe).Elem())
 }
 
+// calculate the bytes size needed for constructing a new lwes event
+// it's used in MarshalBinary for how many bytes need to allocate
 func (lwe *LwesEvent) Size() int {
 	// 1. a byte length prefixed string as the message name (<=255 bytes)
 	s := 1 + len(lwe.Name)
@@ -178,68 +185,63 @@ func (lwe *LwesEvent) MarshalBinary() (buf []byte, err error) {
 		return nil, err
 	}
 
-	// var bs [8]byte
-	// binary.BigEndian.PutUint16(bs[:2], uint16(len(lwe.Attrs)))
-	// buf = append(buf, bs[:2]...)
-	binary.BigEndian.PutUint16(buf[len(buf):len(buf)+2], uint16(len(lwe.attr_keys)))
 	buf = buf[0 : len(buf)+2]
-
-	// TODO: handle lwe.attr_keys is nil
+	binary.BigEndian.PutUint16(buf[len(buf)-2:], uint16(len(lwe.attr_keys)))
 
 	for _, key := range lwe.attr_keys {
 		if buf, err = writeKey(buf, key); err != nil {
 			return nil, err
 		}
-		off := len(buf) + 1 // get current offset, plus the tag is always one byte
+
 		value := lwe.Attrs[key]
 		switch v := value.(type) {
 		case uint16:
 			buf = append(buf, LWES_TYPE_U_INT_16)
-			binary.BigEndian.PutUint16(buf[off:off+2], v)
-			buf = buf[0 : off+2]
+			buf = buf[0 : len(buf)+2]
+			binary.BigEndian.PutUint16(buf[len(buf)-2:], v)
 		case int16:
 			buf = append(buf, LWES_TYPE_INT_16)
-			binary.BigEndian.PutUint16(buf[off:off+2], uint16(v))
-			buf = buf[0 : off+2]
+			buf = buf[0 : len(buf)+2]
+			binary.BigEndian.PutUint16(buf[len(buf)-2:], uint16(v))
 		case uint32:
 			buf = append(buf, LWES_TYPE_U_INT_32)
-			binary.BigEndian.PutUint32(buf[off:off+4], v)
-			buf = buf[0 : off+4]
+			buf = buf[0 : len(buf)+4]
+			binary.BigEndian.PutUint32(buf[len(buf)-4:], v)
 		case int32:
 			buf = append(buf, LWES_TYPE_INT_32)
-			binary.BigEndian.PutUint32(buf[off:off+4], uint32(v))
-			buf = buf[0 : off+4]
+			buf = buf[0 : len(buf)+4]
+			binary.BigEndian.PutUint32(buf[len(buf)-4:], uint32(v))
 		case uint64:
 			// binary.BigEndian.PutUint64(bs[:8], v)
 			buf = append(buf, LWES_TYPE_U_INT_64)
-			// buf = append(buf, bs[:8]...)
-			binary.BigEndian.PutUint64(buf[off:off+8], v)
-			buf = buf[0 : off+8]
+			buf = buf[0 : len(buf)+8]
+			binary.BigEndian.PutUint64(buf[len(buf)-8:], v)
 		case int64:
-			// binary.BigEndian.PutUint64(bs[:8], uint64(v))
 			buf = append(buf, LWES_TYPE_INT_64)
-			// buf = append(buf, bs[:8]...)
-			binary.BigEndian.PutUint64(buf[off:off+8], uint64(v))
-			buf = buf[0 : off+8]
+			buf = buf[0 : len(buf)+8]
+			binary.BigEndian.PutUint64(buf[len(buf)-8:], uint64(v))
 		case string:
 			l := len(v)
-			if l <= 65535 {
+			if l <= 65535 /* 0xffff, or max of uint16 */ {
 				buf = append(buf, LWES_TYPE_STRING)
-				binary.BigEndian.PutUint16(buf[off:off+2], uint16(l))
-				buf = buf[0 : off+2]
-			} else if l <= 0xffffffff /* */ {
+				buf = buf[0 : len(buf)+2]
+				binary.BigEndian.PutUint16(buf[len(buf)-2:], uint16(l))
+			} else if l <= 4294967295 /* 0xffffffff, or max of uint32 */ {
 				buf = append(buf, LWES_TYPE_LONG_STRING)
-				binary.BigEndian.PutUint32(buf[off:off+4], uint32(l))
-				buf = buf[0 : off+4]
+				buf = buf[0 : len(buf)+2]
+				binary.BigEndian.PutUint32(buf[len(buf)-4:], uint32(l))
 			} else {
 				return nil, errNameTooLong
 			}
 			buf = append(buf, v...)
+
 		case net.IP:
 			if len(v) != net.IPv4len {
 				return nil, errInvalidIPAddr
 			}
+			// the network bytes are in the reverse order
 			buf = append(buf, LWES_TYPE_IP_ADDR, v[3], v[2], v[1], v[0])
+
 		case bool:
 			var b byte = 0
 			if v { // if the boolean is true
@@ -248,16 +250,15 @@ func (lwe *LwesEvent) MarshalBinary() (buf []byte, err error) {
 			buf = append(buf, LWES_TYPE_BOOLEAN, b)
 		case byte:
 			buf = append(buf, LWES_TYPE_BYTE, v)
+
 		case float32:
 			buf = append(buf, LWES_TYPE_FLOAT)
-			// buf = append(buf, bs[:4]...)
-			binary.BigEndian.PutUint32(buf[off:off+4], math.Float32bits(v))
-			buf = buf[0 : off+4]
+			buf = buf[0 : len(buf)+4]
+			binary.BigEndian.PutUint32(buf[len(buf)-4:], math.Float32bits(v))
 		case float64:
 			buf = append(buf, LWES_TYPE_DOUBLE)
-			// buf = append(buf, bs[:8]...)
-			binary.BigEndian.PutUint64(buf[off:off+8], math.Float64bits(v))
-			buf = buf[0 : off+8]
+			buf = buf[0 : len(buf)+8]
+			binary.BigEndian.PutUint64(buf[len(buf)-8:], math.Float64bits(v))
 
 		default:
 			return nil, errUnsupportedDataType
@@ -442,8 +443,8 @@ func parse(buf []byte, lwe *LwesEvent) error {
 			value = (b != 0x00)
 		}
 
-		lwe.Attrs[key] = value
 		lwe.attr_keys = append(lwe.attr_keys, key)
+		lwe.Attrs[key] = value
 	}
 
 	// should be nothing remained
@@ -459,6 +460,7 @@ func parse(buf []byte, lwe *LwesEvent) error {
 	return err
 }
 
+// this print all key/value pairs in the original order
 // mainly for debug printing
 func (lwe *LwesEvent) FPrint(w io.Writer) {
 	fmt.Fprintf(w, "%s[%d]\n", lwe.Name, len(lwe.Attrs))

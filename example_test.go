@@ -148,21 +148,40 @@ func ExampleLwesEvent_Enumerate() {
 	// }
 }
 
-func ExampleMarshalBinary() {
+func ExampleNewLwesEvent() {
 	lwe := lwes.NewLwesEvent("MonDemand::PerfMsg")
-	lwe.Set("ctxt_v2", "28")
-	lwe.Set("ctxt_k2", "total_count")
-	lwe.Set("ctxt_v1", "28")
-	lwe.Set("ctxt_k1", "bidder_count")
-	lwe.Set("ctxt_v0", "7e319737-a81c-4817-bdc6-8f596e5caa46")
-	lwe.Set("ctxt_k0", "platform_hash")
-	lwe.Set("ctxt_num", uint16(3))
-	lwe.Set("end0", int64(1494880081487))
-	lwe.Set("start0", int64(1494880081332))
-	lwe.Set("label0", "adunit:538494050:call:1:ssrtb")
-	lwe.Set("num", uint16(1))
-	lwe.Set("caller_label", "broker")
 	lwe.Set("id", "0db302ef-4ba1-4d6b-86e3-92793d4b0c9e")
+	lwe.Set("caller_label", "broker")
+
+	timelines := []struct {
+		label      string
+		start, end int64
+	}{
+		{"adunit:538494050:call:1:ssrtb", 1494880081332, 1494880081487},
+	}
+	lwe.Set("num", uint16(len(timelines)))
+	for idx, tl := range timelines {
+		lwe.Set(fmt.Sprint("label", idx), tl.label)
+		lwe.Set(fmt.Sprint("start", idx), tl.start)
+		lwe.Set(fmt.Sprint("end", idx), tl.end)
+	}
+
+	context := map[string]string{
+		"platform_hash": "7e319737-a81c-4817-bdc6-8f596e5caa46",
+		"bidder_count":  "28",
+		"total_count":   "28",
+	}
+	if len(context) != 0 {
+		lwe.Set("ctxt_num", uint16(len(context)))
+
+		// if need stable order over the keys, need extra string slice
+		// otherwise just range over the map is ok;
+		for idx, key := range []string{"platform_hash", "bidder_count", "total_count"} {
+			value := context[key]
+			lwe.Set(fmt.Sprint("ctxt_k", idx), key)
+			lwe.Set(fmt.Sprint("ctxt_v", idx), value)
+		}
+	} // omit ctxt if no context at all
 
 	buf, _ := lwes.Marshal(lwe)
 	if lwe.Size() != len(buf) || len(buf) != 0x13b {
@@ -178,18 +197,18 @@ func ExampleMarshalBinary() {
 	// Output:
 	// MonDemand::PerfMsg[13]
 	// {
-	// 	ctxt_v2 = 28;
-	// 	ctxt_k2 = total_count;
-	// 	ctxt_v1 = 28;
-	// 	ctxt_k1 = bidder_count;
-	// 	ctxt_v0 = 7e319737-a81c-4817-bdc6-8f596e5caa46;
-	// 	ctxt_k0 = platform_hash;
-	// 	ctxt_num = 3;
-	// 	end0 = 1494880081487;
-	// 	start0 = 1494880081332;
-	// 	label0 = adunit:538494050:call:1:ssrtb;
-	// 	num = 1;
-	// 	caller_label = broker;
 	// 	id = 0db302ef-4ba1-4d6b-86e3-92793d4b0c9e;
+	// 	caller_label = broker;
+	// 	num = 1;
+	// 	label0 = adunit:538494050:call:1:ssrtb;
+	// 	start0 = 1494880081332;
+	// 	end0 = 1494880081487;
+	// 	ctxt_num = 3;
+	// 	ctxt_k0 = platform_hash;
+	// 	ctxt_v0 = 7e319737-a81c-4817-bdc6-8f596e5caa46;
+	// 	ctxt_k1 = bidder_count;
+	// 	ctxt_v1 = 28;
+	// 	ctxt_k2 = total_count;
+	// 	ctxt_v2 = 28;
 	// }
 }

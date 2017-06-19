@@ -4,8 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"reflect"
 	"runtime"
-	"sync"
+	// "sync"
+	"strings"
+	"syscall"
 	"time"
 
 	"go.openx.org/lwes"
@@ -38,25 +43,8 @@ func main() {
 	opts.Bind(flag.CommandLine)
 	flag.Parse()
 
-	var waitTimeout <-chan time.Time
-	/* if max_wait != "" {
-		if dura, err := time.ParseDuration(max_wait); err == nil {
-			waitTimeout = time.After(dura)
-			fmt.Printf("wait running for %q\n", dura)
-		}
-	} */
-	waitTimeout = time.After(max_wait)
-
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	// var once sync.Once
-	// packets := 0
-
-	// begin := time.Now()
-	// lbufs, quitCh, done, err := lwes.Listen(opts.Multi_addr, opts.Multi_port, 100*time.Millisecond)
-
-	// var server lwes.Server
-	// var err error
 	server, err := lwes.Listen(
 		fmt.Sprintf("%s:%d", opts.Multi_addr, opts.Multi_port),
 		100*1000, 65536)
@@ -64,54 +52,79 @@ func main() {
 		log.Fatalln("failed to start server")
 	}
 
-	// started by Listen
-	// go server.Serve()
+	sc := NewStatsClient("go-lwes-data-pipeline", 60*time.Second, map[string]interface{}{
+		"ip":   "239.5.1.1",
+		"port": uint16(10201),
+	})
+	host, _ := os.Hostname()
+	sc.AddContext("host", host)
 
-	out := make(chan *lwes.LwesEvent, 100)
-	processing := sync.WaitGroup{}
-	for i := 0; i < 10; i++ {
-		processing.Add(1)
-		go func() {
-			for readBuf := range server.DataChan() {
-				lwe := new(lwes.LwesEvent)
-				// err := lwes.Unmarshal(readBuf.GetBytes(), &lwe)
-				// err := lwes.Unmarshal(readBuf.GetBytes(), &lwe)
-				err := lwe.UnmarshalBinary(readBuf.Bytes())
-				// server.DataRecd(readBuf)
-				readBuf.Done()
-
-				if err != nil {
-					// TODO: save last Unmarshal error and break if too many
-					log.Printf("Unmarshal failed:", err)
-					continue
-				}
-
-				select {
-				case out <- lwe:
-					// well consumed
-				default:
-					// consumer too slow
-					// counters
+	server.EnableMetricsReport(
+		5*time.Second,
+		func(v interface{}) {
+			// get a copy of a struct containing metrics
+			// TODO: need a cache for same structures, like "encoding/json"
+			t := reflect.TypeOf(v)
+			if t.Kind() != reflect.Struct {
+				// log.Println("accept a struct with int64 only")
+				return
+			}
+			s := reflect.ValueOf(v)
+			for i := 0; i < t.NumField(); i++ {
+				tf := t.Field(i)
+				vf := s.Field(i)
+				/* fmt.Printf("%d: %s<%v,%v> %q %s = %v\n", i, tf.Name,
+				   tf.Type.Kind(), tf.Type.Kind() == reflect.Int64,
+				   tf.Tag.Get("mondemand_stat"), vf.Type(), vf.Interface()) */
+				if tag := tf.Tag.Get("mondemand_stat"); tag != "" && tf.Type.Kind() == reflect.Int64 {
+					words := strings.SplitN(tag, ",", 2)
+					name := words[0]
+					tag_m := "counter"
+					if len(words) == 2 {
+						tag_m = words[1]
+					}
+					switch tag_m {
+					case "counter":
+						sc.SetCounter(name, vf.Interface().(int64))
+					case "gauge":
+						sc.SetGauge(name, vf.Interface().(int64))
+					}
 				}
 			}
-			processing.Done()
-		}()
-	}
+			fmt.Println("reporting metrics", reflect.ValueOf(v))
+			sc.Increment("metrics_reported", 1)
+		},
+	)
 
-OUTER_LOOP:
-	for {
-		select {
-		case <-waitTimeout:
-			// fmt.Println("timeout to break", max_wait)
-			server.Stop()
-			break OUTER_LOOP
+	time.AfterFunc(max_wait, func() {
+		fmt.Printf("timeout to stop server at %s\n", max_wait)
+		server.Stop()
+	})
 
-		case lwe := <-out:
-			// printLwesEvent(lwe)
-			msg := DecodePerfMsg(lwe)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+	go func() {
+		for s := range c {
+			// Block until a signal is received.
+			fmt.Println("Got signal:", s)
+			noop = !noop
+		}
+	}()
+
+	out := server.WaitLwesMode(12)
+	for lwe := range out {
+		if !server.IsServing() {
+			continue
+		}
+
+		// printLwesEvent(lwe)
+		msg := DecodePerfMsg(lwe)
+		if !noop {
 			msg.Print()
 		}
+		sc.Increment("msgs_printed", 1)
 	}
 
-	processing.Wait()
+	signal.Stop(c)
+	close(c)
 }

@@ -2,15 +2,44 @@ package main
 
 import (
 	"fmt"
-	"go.openx.org/lwes"
-	"log"
+	// "log"
 	"time"
+
+	"go.openx.org/lwes"
 )
+
+const (
+	precachedSize = 1024
+)
+
+var (
+	cached map[string][]string
+)
+
+func init() {
+	cached = make(map[string][]string)
+	for _, key := range []string{"k", "v", "t", "ctxt_k", "ctxt_v"} {
+		cached[key] = make([]string, precachedSize)
+		for i := 0; i < precachedSize; i++ {
+			cached[key][i] = fmt.Sprint(key, i)
+		}
+	}
+}
+
+func getK(key string, idx int) string {
+	if idx >= precachedSize {
+		return fmt.Sprint(key, idx)
+	}
+	if strs, ok := cached[key]; ok {
+		return strs[idx]
+	}
+	return fmt.Sprint(key, idx)
+}
 
 type metric struct {
 	tag   string
 	key   string
-	value interface{}
+	value int64
 }
 
 type StatsMsg struct {
@@ -32,27 +61,27 @@ func (st *StatsMsg) AddContext(key, value string) {
 	st.context[key] = value
 }
 
-func (st *StatsMsg) AddMetric(tag, key string, value interface{}) {
+func (st *StatsMsg) AddMetric(tag, key string, value int64) {
 	st.metrics = append(st.metrics, &metric{
 		tag: tag, key: key, value: value})
 }
 
-func (st *StatsMsg) ToLwes() (lwe *lwes.LwesEvent) {
-	lwe = lwes.NewLwesEvent("MonDemand::StatsMsg")
+func (st *StatsMsg) ToLwes() *lwes.LwesEvent {
+	lwe := lwes.NewLwesEvent("MonDemand::StatsMsg")
 	lwe.Set("prog_id", st.prog_id)
 
 	lwe.Set("ctxt_num", uint16(len(st.context)))
 	for idx, key := range st.context_keys {
 		value := st.context[key]
-		lwe.Set(fmt.Sprint("ctxt_k", idx), key)
-		lwe.Set(fmt.Sprint("ctxt_v", idx), value)
+		lwe.Set(getK("ctxt_k", idx), key)
+		lwe.Set(getK("ctxt_v", idx), value)
 	}
 
 	lwe.Set("num", uint16(len(st.metrics)))
 	for idx, metric := range st.metrics {
-		lwe.Set(fmt.Sprint("t", idx), metric.tag)
-		lwe.Set(fmt.Sprint("k", idx), metric.key)
-		lwe.Set(fmt.Sprint("v", idx), metric.value)
+		lwe.Set(getK("t", idx), metric.tag)
+		lwe.Set(getK("k", idx), metric.key)
+		lwe.Set(getK("v", idx), metric.value)
 	}
 
 	return lwe
@@ -106,11 +135,14 @@ func (sc *StatsClient) flush() {
 	}
 	for key, me := range sc.statsdb {
 		st.metrics = append(st.metrics, me)
-		delete(sc.statsdb, key)
+
+		// TODO: need a LRU strategy to delete too old not-in-use keys
+		_ = key
+		// delete(sc.statsdb, key)
 	}
 	sc.Emit(st.ToLwes())
 
-	log.Print("tick")
+	// log.Print("tick")
 }
 
 func (sc *StatsClient) serve() {
@@ -121,12 +153,16 @@ func (sc *StatsClient) serve() {
 		// go one metric request
 		select {
 		case me := <-sc.metrics:
+			orig_tag := me.tag
+			if orig_tag == "setcounter" {
+				me.tag = "counter"
+			}
 			mek := metrickey{me.tag, me.key}
 			if m, ok := sc.statsdb[mek]; ok {
-				switch me.tag {
+				switch orig_tag {
 				case "counter":
-					m.value = m.value.(int64) + me.value.(int64)
-				case "gauge":
+					m.value += me.value
+				case "setcounter", "gauge":
 					m.value = me.value
 				}
 			} else {
@@ -150,8 +186,12 @@ func (sc *StatsClient) Increment(key string, value int64) {
 	sc.metrics <- &metric{"counter", key, value}
 }
 
+func (sc *StatsClient) SetCounter(key string, value int64) {
+	sc.metrics <- &metric{"setcounter", key, value}
+}
+
 // for gauges
-func (sc *StatsClient) Set(key string, value int64) {
+func (sc *StatsClient) SetGauge(key string, value int64) {
 	sc.metrics <- &metric{"gauge", key, value}
 }
 

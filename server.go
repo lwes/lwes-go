@@ -1,59 +1,64 @@
 package lwes
 
 import (
+	// "bytes"
 	"io"
 	"sync"
+	"time"
 )
 
 // Server is the interface for servers that receive inbound span submissions from client.
 type Server interface {
-	Serve()
-	IsServing() bool
-	Stop()
-	DataChan() <-chan ReadMsg
+	Serve()          // start serving
+	IsServing() bool // check if the server is still in serving mode
+	Stop()           // stop the server
+	Wait()           // wait till the server is stopped
+	DataChan() <-chan *readBuf
 	// DataRecd(ReadMsg) // must be called by consumer after reading data from the ReadBuf
+
+	WaitLwesMode(num_workers int) <-chan *LwesEvent
+	EnableMetricsReport(time.Duration, func(string, interface{}))
 }
 
 // ReadBuf is a structure that holds the bytes to read into as well as the number of bytes
 // that was read. The slice is typically pre-allocated to the max packet size and the buffers
 // themselves are polled to avoid memory allocations for every new inbound message.
 type readBuf struct {
-	buf []byte // contents are the bytes buf[off : len(buf)]
+	buf []byte
 	n   int
 
+	// size int
 	pool *sync.Pool
 }
 
-func (r *readBuf) Bytes() []byte {
-	return r.buf[:r.n]
+func (b *readBuf) Done() {
+	// b.Reset()
+	b.pool.Put(b)
 }
 
-func (r *readBuf) ReadFrom(reader io.Reader) (n int64, err error) {
-	var n_ int
-	n_, err = reader.Read(r.buf)
-	r.n = int(n_)
-	return int64(n_), err
+// overwrite the ReadFrom to read one packet only
+func (b *readBuf) ReadFrom(r io.Reader) (int64, error) {
+	n, err := r.Read(b.buf)
+	if err != nil {
+		return 0, nil
+	}
+	b.n = n
+	return int64(n), nil
 }
 
-func (r *readBuf) Write(p []byte) (n int, err error) {
-	// r.n = copy(p, r.buf)
-	// return r.n, nil
-	return 0, io.EOF
+func (b *readBuf) Write(p []byte) (n int, err error) {
+	return copy(b.buf, p), nil
 }
 
-func (r *readBuf) Done() {
-	r.pool.Put(r)
-}
+func (b *readBuf) Bytes() []byte { return b.buf[:b.n] }
 
-func newReadMsg(pool *sync.Pool) ReadMsg {
-	readBuf := pool.Get().(*readBuf)
-	readBuf.pool = pool
-	return readBuf
-}
-
-type ReadMsg interface {
-	io.ReaderFrom
-	io.Writer
-	Bytes() []byte
-	Done() // return this msg (back to pool)
+func NewFixedBuffer(pool *sync.Pool, size int) *readBuf {
+	if x := pool.Get(); x != nil {
+		return x.(*readBuf)
+	} else {
+		return &readBuf{
+			buf:  make([]byte, size),
+			pool: pool,
+		}
+	}
 }

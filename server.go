@@ -26,28 +26,26 @@ type Server interface {
 type readBuf struct {
 	buf []byte
 	n   int
-
-	// size int
 	pool *sync.Pool
 }
 
 func (b *readBuf) Done() {
-	// b.Reset()
+	b.n = 0
 	b.pool.Put(b)
 }
 
 // overwrite the ReadFrom to read one packet only
 func (b *readBuf) ReadFrom(r io.Reader) (int64, error) {
-	n, err := r.Read(b.buf)
+	n, err := r.Read(b.buf[b.n:])
 	if err != nil {
 		return 0, nil
 	}
-	b.n = n
+	b.n = b.n + n
 	return int64(n), nil
 }
 
 func (b *readBuf) Write(p []byte) (n int, err error) {
-	return copy(b.buf, p), nil
+	return copy(b.buf[b.n:], p), nil
 }
 
 func (b *readBuf) Bytes() []byte { return b.buf[:b.n] }

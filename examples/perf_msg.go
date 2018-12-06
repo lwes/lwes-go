@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"go.openx.org/lwes"
+	"github.com/lwes/lwes-go"
 )
 
 type Timeline struct {

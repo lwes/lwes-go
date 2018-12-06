@@ -5,7 +5,7 @@ import (
 	// "log"
 	"time"
 
-	"go.openx.org/lwes"
+	"github.com/lwes/lwes-go"
 )
 
 const (

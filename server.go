@@ -24,8 +24,8 @@ type Server interface {
 // that was read. The slice is typically pre-allocated to the max packet size and the buffers
 // themselves are polled to avoid memory allocations for every new inbound message.
 type readBuf struct {
-	buf []byte
-	n   int
+	buf  []byte
+	n    int
 	pool *sync.Pool
 }
 

@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-
 func TestBufferRetention(t *testing.T) {
 	msg := `test`
 	pool := &sync.Pool{}
@@ -30,7 +29,7 @@ func TestBufferRetention(t *testing.T) {
 
 func TestBufferMultWrite(t *testing.T) {
 	msg := `test`
-	reader :=	strings.NewReader(msg)
+	reader := strings.NewReader(msg)
 	buffer := NewFixedBuffer(&sync.Pool{}, 100)
 	buffer.ReadFrom(reader)
 	reader.Seek(0, 0)

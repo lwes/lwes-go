@@ -79,7 +79,7 @@ func Listen(multi_addrport string) (Server, error) {
 		conn, err = net.ListenUDP("udp", addr)
 	}
 	if err != nil {
-		log.Println("failed to listen multicast udp:", addr)
+		log.Println("failed to listen:", addr)
 		return nil, err
 	}
 	log.Println("start listening on:", multi_addrport)

@@ -5,6 +5,7 @@ import (
 	"io"
 	"sync"
 	"time"
+	"net"
 )
 
 // Server is the interface for servers that receive inbound span submissions from client.
@@ -14,6 +15,9 @@ type Server interface {
 	Stop()           // stop the server
 	Wait()           // wait till the server is stopped
 	DataChan() <-chan *readBuf
+
+	// Addr returns server's network address.
+	Addr() net.Addr
 	// DataRecd(ReadMsg) // must be called by consumer after reading data from the ReadBuf
 
 	WaitLwesMode(num_workers int) <-chan *LwesEvent

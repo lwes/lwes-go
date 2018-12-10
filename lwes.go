@@ -325,3 +325,7 @@ func (s *bufferedServer) EnableMetricsReport(interval time.Duration, reportFunc 
 		}()
 	}
 }
+
+func (s *bufferedServer) Addr() net.Addr {
+	return s.transport.LocalAddr()
+}

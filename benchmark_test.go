@@ -3,7 +3,7 @@ package lwes_test
 import (
 	"testing"
 
-	"go.openx.org/lwes"
+	"github.com/lwes/lwes-go"
 )
 
 func BenchmarkLwesEncode(b *testing.B) {

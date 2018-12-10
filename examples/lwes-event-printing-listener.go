@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"go.openx.org/lwes"
-	"go.openx.org/lwes/examples/pkg/multicast_group"
+	"github.com/lwes/lwes-go"
+	"github.com/lwes/lwes-go/examples/pkg/multicast_group"
 )
 
 func main() {
@@ -27,8 +27,7 @@ func main() {
 	packets := 0
 
 	server, err := lwes.Listen(
-		fmt.Sprintf("%s:%d", opts.Multi_addr, opts.Multi_port),
-		100*1000, 65536)
+		fmt.Sprintf("%s:%d", opts.Multi_addr, opts.Multi_port))
 
 	// fmt.Println(server, out, server.IsServing())
 	for {

@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"go.openx.org/lwes"
-	"go.openx.org/lwes/examples/pkg/multicast_group"
+	"github.com/lwes/lwes-go"
+	"github.com/lwes/lwes-go/examples/pkg/multicast_group"
 )
 
 var (
@@ -46,8 +46,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	server, err := lwes.Listen(
-		fmt.Sprintf("%s:%d", opts.Multi_addr, opts.Multi_port),
-		100*1000, 65536)
+		fmt.Sprintf("%s:%d", opts.Multi_addr, opts.Multi_port))
 	if err != nil {
 		log.Fatalln("failed to start server")
 	}
@@ -61,7 +60,7 @@ func main() {
 
 	server.EnableMetricsReport(
 		5*time.Second,
-		func(v interface{}) {
+		func(_ string, v interface{}) {
 			// get a copy of a struct containing metrics
 			// TODO: need a cache for same structures, like "encoding/json"
 			t := reflect.TypeOf(v)

@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"go.openx.org/lwes"
+	"github.com/lwes/lwes-go"
 )
 
 // Example printing the lwes event

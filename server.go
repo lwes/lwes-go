@@ -3,9 +3,9 @@ package lwes
 import (
 	// "bytes"
 	"io"
+	"net"
 	"sync"
 	"time"
-	"net"
 )
 
 // Server is the interface for servers that receive inbound span submissions from client.

@@ -1,4 +1,4 @@
-module github.com/lwes/lwes-go
+module github.com/lwes/lwes
 
 go 1.23.0
 
